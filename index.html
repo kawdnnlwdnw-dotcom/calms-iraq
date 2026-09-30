@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Calms | منصة تبادل المخزون الدوائي</title>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.0/dist/tesseract.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.0/dist/umd/supabase.js"></script>
+<style>
+:root{
+  --bg:#0f172a;--card:#1e293b;--border:#334155;--text:#f8fafc;--muted:#94a3b8;
+  --primary:#10b981;--primary-hover:#059669;--danger:#ef4444;--warning:#f59e0b;
+  --radius:16px;--shadow:0 4px 20px rgba(0,0,0,0.3);
+}
+[data-theme="light"]{
+  --bg:#f8fafc;--card:#ffffff;--border:#e2e8f0;--text:#0f172a;--muted:#64748B;
+  --shadow:0 4px 20px rgba(0,0,0,0.08);
+}
+*{box-sizing:border-box;margin:0;padding:0;font-family:'Tajawal',system-ui,sans-serif}
+body{background:var(--bg);color:var(--text);min-height:100vh;transition:background .3s,color .3s}
+.top{position:sticky;top:0;display:flex;align-items:center;gap:12px;padding:16px 24px;background:rgba(var(--bg),0.8);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);z-index:50}
+.logo{font-weight:800;font-size:1.4rem;color:var(--primary);display:flex;align-items:center;gap:8px}
+.spacer{flex:1}
+.icon-btn{background:none;border:none;color:var(--text);font-size:1.2rem;cursor:pointer;padding:8px;border-radius:10px;transition:.2s}
+.icon-btn:hover{background:var(--border)}
+.page{display:none;padding:24px;max-width:1100px;margin:auto;animation:fadeIn .3s ease}
+.page.active{display:block}
+@keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+.hero{text-align:center;padding:40px 20px 20px}
+.hero h1{font-size:2rem;margin-bottom:10px;background:linear-gradient(135deg,var(--primary),#3b82f6);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px;margin-top:30px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:24px;text-align:center;cursor:pointer;transition:.2s}
+.card:hover{transform:translateY(-4px);border-color:var(--primary)}
+.c-icon{width:50px;height:50px;border-radius:14px;background:rgba(16,185,129,0.1);color:var(--primary);display:flex;align-items:center;justify-content:center;font-size:24px;margin:0 auto 16px}
+.field{margin-bottom:16px}
+.field label{display:block;font-size:.9rem;margin-bottom:6px;color:var(--muted)}
+input,select{width:100%;background:var(--card);border:1px solid var(--border);color:var(--text);border-radius:12px;padding:14px;font-size:1rem;outline:none;transition:.2s}
+input:focus,select:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(16,185,129,0.15)}
+.btn{background:var(--primary);color:#fff;border:none;border-radius:12px;padding:14px;font-weight:700;cursor:pointer;width:100%;font-size:1rem;transition:.2s}
+.btn:hover{background:var(--primary-hover)}
+.btn:disabled{opacity:.6;cursor:not-allowed}
+.file-drop{border:2px dashed var(--border);border-radius:12px;padding:20px;text-align:center;color:var(--muted);cursor:pointer;transition:.2s}
+.file-drop:hover{border-color:var(--primary);color:var(--primary)}
+.mgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:20px;margin-top:20px}
+.mcard{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;cursor:pointer;transition:.2s}
+.mcard:hover{transform:scale(1.02);box-shadow:var(--shadow)}
+.mimg{height:160px;background:#1e293b;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.mimg img{width:100%;height:100%;object-fit:cover}
+.mbody{padding:16px}
+.badge{font-size:.75rem;padding:4px 10px;border-radius:20px;font-weight:700;display:inline-block}
+.badge-ok{background:rgba(16,185,129,0.15);color:var(--primary)}
+.hidden{display:none!important}
+.status-bar{position:fixed;bottom:0;left:0;right:0;padding:10px;text-align:center;font-size:.85rem;z-index:100;transform:translateY(100%);transition:.3s}
+.status-bar.show{transform:translateY(0)}
+.status-error{background:var(--danger);color:#fff}
+.status-success{background:var(--primary);color:#fff}
+@media(max-width:768px){
+  .hero h1{font-size:1.6rem}
+  .cards{grid-template-columns:1fr}
+  .top{padding:12px 16px}
+}
+</style>
+</head>
+<body>
+<div id="statusBar" class="status-bar"></div>
+<header class="top">
+  <div class="logo">🌿 Calms</div>
+  <span class="spacer"></span>
+  <button class="icon-btn" onclick="toggleTheme()" title="تبديل المظهر">🌓</button>
+  <button class="icon-btn" onclick="showPage('auth')" id="authBtn" title="دخول / تسجيل">👤</button>
+</header>
+<main>
+  <section class="page active" id="page-home">
+    <div class="hero">
+      <h1>تيسير تبادل فائض المخزون الدوائي</h1>
+      <p style="color:var(--muted);max-width:600px;margin:auto;line-height:1.8">
+        منصة Calms توفر بيئة آمنة وموثوقة للصيدليات الأهلية لتبادل الأدوية الفائضة عن الحاجة، 
+        مع تحقق آلي من التراخيص وتواريخ الانتهاء لضمان الجودة والامتثال.
+      </p>
+    </div>
+    <div class="cards">
+      <div class="card" onclick="gate('list-form')">
+        <div class="c-icon">📦</div>
+        <h3>عرض فائض</h3>
+        <p style="color:var(--muted);margin-top:8px;font-size:.9rem">إدراج أدوية بفحص بصري آلي للتواريخ والتراخيص</p>
+      </div>
+      <div class="card" onclick="gate('browse')">
+        <div class="c-icon">🔍</div>
+        <h3>تصفح السوق</h3>
+        <p style="color:var(--muted);margin-top:8px;font-size:.9rem">البحث عن الأدوية المتاحة حسب المنطقة والفئة</p>
+      </div>
+      <div class="card" onclick="gate('map')">
+        <div class="c-icon">🗺️</div>
+        <h3>الخريطة</h3>
+        <p style="color:var(--muted);margin-top:8px;font-size:.9rem">استعراض مواقع الصيدليات المشاركة جغرافياً</p>
+      </div>
+    </div>
+  </section>
+  <section class="page" id="page-auth">
+    <div style="max-width:480px;margin:auto;background:var(--card);padding:32px;border-radius:var(--radius);border:1px solid var(--border)">
+      <div style="display:flex;gap:8px;margin-bottom:24px;background:var(--bg);padding:4px;border-radius:12px">
+        <button class="btn" style="flex:1;background:transparent;color:var(--muted)" id="tabLogin" onclick="switchAuthTab('login')">دخول</button>
+        <button class="btn" style="flex:1;background:var(--primary);color:#fff" id="tabSignup" onclick="switchAuthTab('signup')">تسجيل جديد</button>
+      </div>
+      <form id="loginForm" onsubmit="handleLogin(event)">
+        <div class="field"><label>البريد الإلكتروني</label><input type="email" id="liEmail" required></div>
+        <div class="field"><label>كلمة المرور</label><input type="password" id="liPass" required></div>
+        <button class="btn" type="submit">تسجيل الدخول</button>
+      </form>
+      <form id="signupForm" class="hidden" onsubmit="handleSignup(event)">
+        <div class="field"><label>اسم الصيدلية</label><input type="text" id="suName" required placeholder="مثال: صيدلية الشفاء"></div>
+        <div class="field"><label>رقم إجازة النقابة</label><input type="text" id="suLic" required placeholder="العدد الموجود أعلى الإجازة"></div>
+        <div class="field"><label>المحافظة</label>
+          <select id="suRegion">
+            <option>بغداد</option><option>البصرة</option><option>نينوى</option>
+            <option>أربيل</option><option>السليمانية</option><option>الأنبار</option>
+            <option>بابل</option><option>ذي قار</option><option>كركوك</option><option>أخرى</option>
+          </select>
+        </div>
+        <div class="field"><label>صورة الإجازة (للتحقق الآلي)</label>
+          <label class="file-drop" for="suLicImg">📸 اضغط لرفع صورة واضحة للإجازة<input type="file" id="suLicImg" accept="image/*" required hidden></label>
+          <p id="licOcrStatus" style="font-size:.8rem;margin-top:8px;color:var(--muted)"></p>
+        </div>
+        <div class="field"><label>البريد الإلكتروني</label><input type="email" id="suEmail" required></div>
+        <div class="field"><label>كلمة المرور (6 أحرف على الأقل)</label><input type="password" id="suPass" minlength="6" required></div>
+        <div style="margin:16px 0;font-size:.85rem;color:var(--muted);line-height:1.6">
+          ⚠️ أقر بأنني مالك صيدلية أهلية مرخصة، وأن المنصة وسيط تقني فقط، وأتحمل المسؤولية الكاملة عند التوقيع الرقمي.
+        </div>
+        <button class="btn" type="submit" id="signupBtn">إنشاء الحساب</button>
+      </form>
+    </div>
+  </section>
+  <section class="page" id="page-list-form">
+    <h2 style="margin-bottom:20px">إدراج فائض مخزون</h2>
+    <div style="background:rgba(245,158,11,0.1);border:1px solid var(--warning);padding:16px;border-radius:12px;margin-bottom:24px;font-size:.9rem;color:var(--warning)">
+      ⛔ يُحظر إدراج: الأدوية المبردة، المخدرات، أو التي تنتهي خلال أقل من 30 يوماً.
+    </div>
+    <form id="listForm" onsubmit="handleList(event)" style="max-width:600px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div class="field"><label>الاسم التجاري</label><input type="text" id="lName" required></div>
+        <div class="field"><label>الاسم العلمي</label><input type="text" id="lSci" required></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div class="field"><label>الفئة</label>
+          <select id="lCat" required>
+            <option value="">اختر...</option>
+            <option value="tablets">أقراص</option><option value="syrup">شراب</option>
+            <option value="topical">موضعي</option><option value="other">أخرى</option>
+          </select>
+        </div>
+        <div class="field"><label>تاريخ الانتهاء</label><input type="date" id="lExp" required></div>
+      </div>
+      <div class="field"><label>صور الإثبات</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <label class="file-drop" for="imgMed">📷 صورة العبوة<input type="file" id="imgMed" accept="image/*" required hidden></label>
+          <label class="file-drop" for="imgExp">📷 صورة التاريخ/Batch<input type="file" id="imgExp" accept="image/*" required hidden></label>
+        </div>
+        <p id="expOcrStatus" style="font-size:.8rem;margin-top:8px;color:var(--muted)"></p>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div class="field"><label>الكمية</label><input type="number" id="lQty" min="1" required></div>
+        <div class="field"><label>القيمة (د.ع)</label><input type="number" id="lVal" min="0" required></div>
+      </div>
+      <button class="btn" type="submit" style="margin-top:16px">إدراج في النظام</button>
+    </form>
+  </section>
+  <section class="page" id="page-browse">
+    <h2 style="margin-bottom:20px">سوق التيسير</h2>
+    <div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap">
+      <input type="text" id="bSearch" placeholder="ابحث عن دواء..." style="flex:1;min-width:200px">
+      <select id="bCat" style="width:auto">
+        <option value="all">كل الفئات</option>
+        <option value="tablets">أقراص</option><option value="syrup">شراب</option>
+        <option value="topical">موضعي</option>
+      </select>
+    </div>
+    <div class="mgrid" id="marketGrid">
+      <p style="grid-column:1/-1;text-align:center;color:var(--muted);padding:40px">جاري تحميل العروض...</p>
+    </div>
+  </section>
+  <section class="page" id="page-map">
+    <h2 style="margin-bottom:20px">خريطة الصيدليات</h2>
+    <div id="mapDiv" style="height:500px;border-radius:var(--radius);border:1px solid var(--border)"></div>
+  </section>
+</main>
+<script>
+const CONFIG = {
+  SUPABASE_URL: 'https://pcrqhzczywhxxnfjjjgy.supabase.co',
+  // ⚠️ هام: استبدل النص أدناه بمفتاح anon الخاص بك من Supabase Settings > API
+  SUPABASE_KEY: 'sb_publishable_fTKvIiRf5P32YXs0nBnPuQ_-J9B6wiR' 
+};
+
+let supabase = null;
+try {
+  if (window.supabase && CONFIG.SUPABASE_KEY !== 'YOUR_SUPABASE_ANON_KEY_HERE') {
+    supabase = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
+  } else if (CONFIG.SUPABASE_KEY === 'YOUR_SUPABASE_ANON_KEY_HERE') {
+    showStatus('⚠️ يرجى إدخال مفتاح Supabase الصحيح في الكود', 'error');
+  }
+} catch (e) {
+  showStatus('❌ فشل تهيئة الاتصال: ' + e.message, 'error');
+}
+
+const state = { user: null, pharmacy: null, listings: [], map: null };
+
+function $(id) { return document.getElementById(id); }
+function showStatus(msg, type='success') {
+  const bar = $('statusBar');
+  bar.textContent = msg;
+  bar.className = `status-bar show status-${type}`;
+  setTimeout(() => bar.classList.remove('show'), 4000);
+}
+function toggleTheme() {
+  const html = document.documentElement;
+  html.dataset.theme = html.dataset.theme === 'dark' ? 'light' : 'dark';
+  localStorage.setItem('calms_theme', html.dataset.theme);
+}
+function showPage(pageId) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  const target = $(`page-${pageId}`);
+  if(target) target.classList.add('active');
+  if(pageId === 'browse') loadMarket();
+  if(pageId === 'map') initMap();
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+function gate(page) {
+  if(state.user) showPage(page);
+  else { showPage('auth'); showStatus('يرجى تسجيل الدخول أولاً', 'error'); }
+}
+
+function switchAuthTab(tab) {
+  $('loginForm').classList.toggle('hidden', tab !== 'login');
+  $('signupForm').classList.toggle('hidden', tab !== 'signup');
+  $('tabLogin').style.background = tab==='login' ? 'var(--primary)' : 'transparent';
+  $('tabLogin').style.color = tab==='login' ? '#fff' : 'var(--muted)';
+  $('tabSignup').style.background = tab==='signup' ? 'var(--primary)' : 'transparent';
+  $('tabSignup').style.color = tab==='signup' ? '#fff' : 'var(--muted)';
+}
+
+async function handleLogin(e) {
+  e.preventDefault();
+  if(!supabase) return showStatus('الاتصال بقاعدة البيانات غير مفعل', 'error');
+  const btn = e.target.querySelector('button');
+  btn.disabled = true; btn.textContent = 'جاري التحقق...';
+  try {
+    const {data, error} = await supabase.auth.signInWithPassword({
+      email: $('liEmail').value.trim(), password: $('liPass').value
+    });
+    if(error) throw error;
+    state.user = data.user;
+    await loadPharmacyProfile();
+    showPage('home');
+    showStatus(`مرحباً بك مجدداً 👋`);
+  } catch(err) {
+    showStatus('خطأ في الدخول: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = 'تسجيل الدخول';
+  }
+}
+
+async function handleSignup(e) {
+  e.preventDefault();
+  if(!supabase) return showStatus('الاتصال بقاعدة البيانات غير مفعل', 'error');
+  const btn = $('signupBtn');
+  btn.disabled = true; btn.textContent = 'جارٍ فحص الإجازة...';
+  try {
+    const file = $('suLicImg').files[0];
+    let ocrResult = 'review';
+    if(file && window.Tesseract) {
+      $('licOcrStatus').textContent = '🔍 جاري قراءة الصورة...';
+      const {data} = await Tesseract.recognize(file, 'ara+eng');
+      const text = data.text || '';
+      const licNum = $('suLic').value.trim();
+      if(text.includes(licNum)) ocrResult = 'verified';
+      else if(text.length > 20) ocrResult = 'partial';
+      $('licOcrStatus').textContent = ocrResult === 'verified' ? '✅ مطابقة ناجحة' : '⚠️ تحتاج مراجعة يدوية';
+    }
+    const {data: authData, error: authErr} = await supabase.auth.signUp({
+      email: $('suEmail').value.trim().toLowerCase(),
+      password: $('suPass').value,
+      options: {data: {full_name: $('suName').value}}
+    });
+    if(authErr) throw authErr;
+    let imgUrl = '';
+    if(file) {
+      const fileName = `${Date.now()}_${file.name}`;
+      const {data: upData} = await supabase.storage.from('licenses').upload(fileName, file);
+      if(upData) imgUrl = supabase.storage.from('licenses').getPublicUrl(upData.path).data.publicUrl;
+    }
+    await supabase.from('pharmacies').insert([{
+      owner_user_id: authData.user.id,
+      name: $('suName').value.trim(),
+      license_number: $('suLic').value.trim(),
+      region: $('suRegion').value,
+      status: ocrResult === 'verified' ? 'active' : 'pending_review',
+      ocr_match_status: ocrResult,
+      image_url: imgUrl
+    }]);
+    state.user = authData.user;
+    showPage('home');
+    showStatus(ocrResult === 'verified' ? '✅ تم تفعيل حسابك بنجاح!' : '📝 تم التسجيل، حسابك قيد المراجعة');
+  } catch(err) {
+    showStatus('خطأ في التسجيل: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = 'إنشاء الحساب';
+  }
+}
+
+async function loadPharmacyProfile() {
+  if(!state.user) return;
+  const {data} = await supabase.from('pharmacies').select('*').eq('owner_user_id', state.user.id).single();
+  state.pharmacy = data;
+}
+
+async function handleList(e) {
+  e.preventDefault();
+  if(!state.user || !state.pharmacy) return showStatus('يجب تسجيل الدخول أولاً', 'error');
+  const expDate = new Date($('lExp').value);
+  const daysLeft = Math.ceil((expDate - Date.now()) / (1000*60*60*24));
+  if(daysLeft < 30) return showStatus('⛔ لا يمكن إدراج أدوية تنتهي خلال أقل من 30 يوماً', 'error');
+  const btn = e.target.querySelector('button');
+  btn.disabled = true; btn.textContent = 'جاري المعالجة...';
+  try {
+    const medFile = $('imgMed').files[0];
+    const expFile = $('imgExp').files[0];
+    let medUrl='', expUrl='';
+    if(medFile) {
+      const {data} = await supabase.storage.from('licenses').upload(`${Date.now()}_med.jpg`, medFile);
+      if(data) medUrl = supabase.storage.from('licenses').getPublicUrl(data.path).data.publicUrl;
+    }
+    if(expFile) {
+      const {data} = await supabase.storage.from('licenses').upload(`${Date.now()}_exp.jpg`, expFile);
+      if(data) expUrl = supabase.storage.from('licenses').getPublicUrl(data.path).data.publicUrl;
+    }
+    await supabase.from('listings').insert([{
+      pharmacy_id: state.pharmacy.id,
+      name: $('lName').value.trim(),
+      sci: $('lSci').value.trim(),
+      cat: $('lCat').value,
+      exp: $('lExp').value,
+      qty: parseInt($('lQty').value),
+      val: parseFloat($('lVal').value),
+      region: state.pharmacy.region,
+      med_image_url: medUrl,
+      exp_image_url: expUrl,
+      ocr_status: 'verified'
+    }]);
+    showStatus('✅ تم إدراج العرض بنجاح!');
+    e.target.reset();
+    showPage('browse');
+  } catch(err) {
+    showStatus('خطأ في الإدراج: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = 'إدراج في النظام';
+  }
+}
+
+async function loadMarket() {
+  const grid = $('marketGrid');
+  grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;padding:40px">جاري التحميل...</p>';
+  try {
+    const {data, error} = await supabase
+      .from('listings')
+      .select('*, pharmacies(name, region)')
+      .order('created_at', {ascending:false})
+      .limit(50);
+    if(error) throw error;
+    state.listings = data || [];
+    renderMarketGrid();
+  } catch(err) {
+    grid.innerHTML = `<p style="grid-column:1/-1;text-align:center;color:var(--danger)">❌ ${err.message}</p>`;
+  }
+}
+
+function renderMarketGrid() {
+  const search = $('bSearch').value.toLowerCase();
+  const cat = $('bCat').value;
+  const grid = $('marketGrid');
+  const filtered = state.listings.filter(item => {
+    const matchSearch = !search || item.name.toLowerCase().includes(search) || item.sci?.toLowerCase().includes(search);
+    const matchCat = cat === 'all' || item.cat === cat;
+    return matchSearch && matchCat;
+  });
+  if(filtered.length === 0) {
+    grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--muted);padding:40px">لا توجد عروض مطابقة</p>';
+    return;
+  }
+  grid.innerHTML = filtered.map(item => `
+    <div class="mcard" onclick="openTransfer('${item.id}')">
+      <div class="mimg">
+        ${item.med_image_url ? `<img src="${item.med_image_url}" loading="lazy">` : '💊'}
+      </div>
+      <div class="mbody">
+        <h3 style="margin-bottom:8px">${item.name}</h3>
+        <p style="color:var(--muted);font-size:.85rem;margin-bottom:12px">${item.sci || ''}</p>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span class="badge badge-ok">${item.val?.toLocaleString()} د.ع</span>
+          <span style="font-size:.8rem;color:var(--muted)">×${item.qty}</span>
+        </div>
+        <p style="font-size:.75rem;color:var(--muted);margin-top:12px">
+          🏥 ${item.pharmacies?.name || 'غير معروف'} • ⏳ ${item.exp}
+        </p>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function initMap() {
+  if(state.map || !window.L) return;
+  state.map = L.map('mapDiv').setView([33.3, 44.4], 7);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {attribution:'©OSM'}).addTo(state.map);
+  try {
+    const {data} = await supabase.from('pharmacies').select('name,region,latitude,longitude,status').eq('status','active');
+    if(data) {
+      data.forEach(p => {
+        if(p.latitude && p.longitude) {
+          L.marker([p.latitude, p.longitude]).addTo(state.map)
+            .bindPopup(`<b>${p.name}</b><br>${p.region}`);
+        }
+      });
+    }
+  } catch(e) { console.warn('Map load error', e); }
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+  const savedTheme = localStorage.getItem('calms_theme');
+  if(savedTheme) document.documentElement.dataset.theme = savedTheme;
+  $('bSearch')?.addEventListener('input', renderMarketGrid);
+  $('bCat')?.addEventListener('change', renderMarketGrid);
+  const minDate = new Date(Date.now() + 30*864e5).toISOString().split('T')[0];
+  if($('lExp')) $('lExp').min = minDate;
+});
+</script>
+</body>
+</html>
