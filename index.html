@@ -57,6 +57,15 @@ input:focus,select:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(1
 .status-bar.show{transform:translateY(0)}
 .status-error{background:var(--danger);color:#fff}
 .status-success{background:var(--primary);color:#fff}
+/* ===== نوافذ التبادل والسند (الفقرة 1) ===== */
+.modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:100;background:rgba(0,0,0,.6);padding:16px}
+.modal.show{display:flex}
+.modal-box{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);max-width:500px;width:100%;padding:24px;display:flex;flex-direction:column;gap:12px;max-height:90vh;overflow:auto}
+.close-x{background:none;border:none;color:var(--muted);font-size:1.2rem;cursor:pointer;align-self:flex-end}
+.info-note{background:rgba(16,185,129,.08);border:1px solid var(--primary);color:var(--text);border-radius:12px;padding:14px;font-size:.88rem;line-height:1.9}
+.legal-note{background:rgba(239,68,68,.08);border:1px solid var(--danger);color:var(--danger);border-radius:12px;padding:14px;font-size:.85rem;line-height:1.7}
+.checkbox-container{display:flex;gap:10px;padding:12px;background:rgba(16,185,129,.05);border-radius:10px;border:1px solid var(--primary);align-items:flex-start}
+.checkbox-container input{width:auto;margin-top:4px}
 @media(max-width:768px){
   .hero h1{font-size:1.6rem}
   .cards{grid-template-columns:1fr}
@@ -185,12 +194,47 @@ input:focus,select:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(1
     <h2 style="margin-bottom:20px">خريطة الصيدليات</h2>
     <div id="mapDiv" style="height:500px;border-radius:var(--radius);border:1px solid var(--border)"></div>
   </section>
+
+  <!-- ===== نوافذ التبادل والسند (الفقرة 1) ===== -->
+  <div class="modal" id="transferModal">
+    <div class="modal-box">
+      <button class="close-x" onclick="closeModal('transferModal')">✕</button>
+      <h3>📜 بروتوكول التبادل والتوقيع الرقمي</h3>
+      <div class="info-note">
+        <p><b>العنصر:</b> <span id="tName"></span></p>
+        <p><b>الكمية المتاحة:</b> <span id="tQty"></span></p>
+        <p><b>القيمة:</b> <span id="tVal"></span> د.ع</p>
+        <p><b>من صيدلية:</b> <span id="tFrom"></span></p>
+      </div>
+      <div class="legal-note"><b>إقرار المستلم:</b> فحصتُ الدواء شخصياً وأتحمل المسؤولية الكاملة من لحظة توقيعي الرقمي.</div>
+      <div class="checkbox-container">
+        <input type="checkbox" id="signAgree" onchange="document.getElementById('confirmTransferBtn').disabled=!this.checked">
+        <label for="signAgree" style="font-size:.9rem">أوقع رقمياً وأتحمل المسؤولية.</label>
+      </div>
+      <button class="btn" id="confirmTransferBtn" onclick="confirmTransfer()" disabled>تأكيد وإصدار السند</button>
+    </div>
+  </div>
+
+  <div class="modal" id="invoiceModal">
+    <div class="modal-box">
+      <button class="close-x" onclick="closeModal('invoiceModal')">✕</button>
+      <h3 style="color:var(--primary);text-align:center">🧾 سند التبادل الرقمي</h3>
+      <div style="font-size:.9rem;line-height:2">
+        <p><b>السند:</b> <span id="invId"></span></p>
+        <p><b>التاريخ:</b> <span id="invDate"></span></p>
+        <p><b>من:</b> <span id="invFrom"></span></p>
+        <p><b>إلى:</b> <span id="invTo"></span></p>
+        <p><b>القيمة:</b> <span id="invVal"></span> د.ع</p>
+        <p><b>بصمة التوقيع:</b> <span id="invSig" style="font-size:.65rem;word-break:break-all"></span></p>
+      </div>
+      <button class="btn" onclick="closeModal('invoiceModal')">حفظ وإغلاق</button>
+    </div>
+  </div>
 </main>
 <script>
 const CONFIG = {
   SUPABASE_URL: 'https://pcrqhzczywhxxnfjjjgy.supabase.co',
-  // ⚠️ هام: استبدل النص أدناه بمفتاح anon الخاص بك من Supabase Settings > API
-  SUPABASE_KEY: 'sb_publishable_fTKvIiRf5P32YXs0nBnPuQ_-J9B6wiR' 
+  SUPABASE_KEY: 'sb_publishable_fTKvIiRf5P32YXs0nBnPuQ_-J9B6wiR'
 };
 
 let supabase = null;
@@ -205,6 +249,7 @@ try {
 }
 
 const state = { user: null, pharmacy: null, listings: [], map: null };
+let selListing = null;
 
 function $(id) { return document.getElementById(id); }
 function showStatus(msg, type='success') {
@@ -253,7 +298,7 @@ async function handleLogin(e) {
     state.user = data.user;
     await loadPharmacyProfile();
     showPage('home');
-    showStatus(`مرحباً بك مجدداً 👋`);
+    showStatus('مرحباً بك مجدداً 👋');
   } catch(err) {
     showStatus('خطأ في الدخول: ' + err.message, 'error');
   } finally {
@@ -290,7 +335,7 @@ async function handleSignup(e) {
       const {data: upData} = await supabase.storage.from('licenses').upload(fileName, file);
       if(upData) imgUrl = supabase.storage.from('licenses').getPublicUrl(upData.path).data.publicUrl;
     }
-    await supabase.from('pharmacies').insert([{
+    const {error: dbErr} = await supabase.from('pharmacies').insert([{
       owner_user_id: authData.user.id,
       name: $('suName').value.trim(),
       license_number: $('suLic').value.trim(),
@@ -299,7 +344,9 @@ async function handleSignup(e) {
       ocr_match_status: ocrResult,
       image_url: imgUrl
     }]);
+    if(dbErr) throw dbErr;
     state.user = authData.user;
+    await loadPharmacyProfile();
     showPage('home');
     showStatus(ocrResult === 'verified' ? '✅ تم تفعيل حسابك بنجاح!' : '📝 تم التسجيل، حسابك قيد المراجعة');
   } catch(err) {
@@ -380,7 +427,7 @@ function renderMarketGrid() {
   const cat = $('bCat').value;
   const grid = $('marketGrid');
   const filtered = state.listings.filter(item => {
-    const matchSearch = !search || item.name.toLowerCase().includes(search) || item.sci?.toLowerCase().includes(search);
+    const matchSearch = !search || item.name.toLowerCase().includes(search) || (item.sci||'').toLowerCase().includes(search);
     const matchCat = cat === 'all' || item.cat === cat;
     return matchSearch && matchCat;
   });
@@ -397,15 +444,77 @@ function renderMarketGrid() {
         <h3 style="margin-bottom:8px">${item.name}</h3>
         <p style="color:var(--muted);font-size:.85rem;margin-bottom:12px">${item.sci || ''}</p>
         <div style="display:flex;justify-content:space-between;align-items:center">
-          <span class="badge badge-ok">${item.val?.toLocaleString()} د.ع</span>
+          <span class="badge badge-ok">${(item.val||0).toLocaleString()} د.ع</span>
           <span style="font-size:.8rem;color:var(--muted)">×${item.qty}</span>
         </div>
         <p style="font-size:.75rem;color:var(--muted);margin-top:12px">
-          🏥 ${item.pharmacies?.name || 'غير معروف'} • ⏳ ${item.exp}
+          🏥 ${(item.pharmacies && item.pharmacies.name) ? item.pharmacies.name : 'غير معروف'} • ⏳ ${item.exp}
         </p>
       </div>
     </div>
   `).join('');
+}
+
+/* ===== الفقرة 1: بروتوكول التبادل والتوقيع الرقمي ===== */
+function openTransfer(id) {
+  if(!state.user) { showPage('auth'); showStatus('يرجى تسجيل الدخول أولاً', 'error'); return; }
+  const item = state.listings.find(x => x.id === id);
+  if(!item) return;
+  if (state.pharmacy && item.pharmacies && item.pharmacies.name === state.pharmacy.name) {
+    showStatus('⚠️ لا يمكنك تبادل عرضك الخاص', 'error');
+    return;
+  }
+  selListing = item;
+  $('tName').textContent = item.name;
+  $('tQty').textContent = '×' + item.qty;
+  $('tVal').textContent = (item.val||0).toLocaleString();
+  $('tFrom').textContent = (item.pharmacies && item.pharmacies.name) ? item.pharmacies.name : '—';
+  $('signAgree').checked = false;
+  $('confirmTransferBtn').disabled = true;
+  $('transferModal').classList.add('show');
+}
+
+function closeModal(id){ $(id).classList.remove('show'); }
+
+function fallbackHash(s){var h=5381;for(var i=0;i<s.length;i++)h=((h<<5)+h+s.charCodeAt(i))|0;return 'fb_'+(h>>>0).toString(16)+'_'+s.length}
+function sha256(str){
+  if(window.crypto && crypto.subtle){
+    return crypto.subtle.digest('SHA-256', new TextEncoder().encode(str))
+      .then(function(b){return Array.from(new Uint8Array(b)).map(function(x){return x.toString(16).padStart(2,'0')}).join('')})
+      .catch(function(){return fallbackHash(str)});
+  }
+  return Promise.resolve(fallbackHash(str));
+}
+
+async function confirmTransfer(){
+  if(!selListing) return;
+  const btn = $('confirmTransferBtn');
+  btn.disabled = true; btn.textContent = 'جاري إصدار السند...';
+  try {
+    const sig = await sha256(selListing.id + state.user.id + Date.now());
+    const { data, error } = await supabase.rpc('complete_transfer', {
+      p_listing_id: selListing.id,
+      p_signature: sig
+    });
+    if (error) throw error;
+    const row = data && data[0];
+    closeModal('transferModal');
+    if (row) {
+      $('invId').textContent = row.transfer_id;
+      $('invDate').textContent = new Date().toLocaleString('ar-IQ');
+      $('invFrom').textContent = row.from_name;
+      $('invTo').textContent = row.to_name;
+      $('invVal').textContent = (row.value||0).toLocaleString();
+      $('invSig').textContent = sig.slice(0, 28) + '…';
+      $('invoiceModal').classList.add('show');
+    }
+    showStatus('✅ تم توثيق التبادل وإصدار السند');
+    loadMarket();
+  } catch(err) {
+    showStatus('❌ ' + err.message, 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = 'تأكيد وإصدار السند';
+  }
 }
 
 async function initMap() {
@@ -432,6 +541,10 @@ window.addEventListener('DOMContentLoaded', () => {
   $('bCat')?.addEventListener('change', renderMarketGrid);
   const minDate = new Date(Date.now() + 30*864e5).toISOString().split('T')[0];
   if($('lExp')) $('lExp').min = minDate;
+  // إغلاق النوافذ عند الضغط خارجها
+  document.querySelectorAll('.modal').forEach(m => {
+    m.addEventListener('click', e => { if(e.target === m) m.classList.remove('show'); });
+  });
 });
 </script>
 </body>
