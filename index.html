@@ -57,7 +57,6 @@ input:focus,select:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(1
 .status-bar.show{transform:translateY(0)}
 .status-error{background:var(--danger);color:#fff}
 .status-success{background:var(--primary);color:#fff}
-/* ===== نوافذ التبادل والسند (الفقرة 1) ===== */
 .modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:100;background:rgba(0,0,0,.6);padding:16px}
 .modal.show{display:flex}
 .modal-box{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);max-width:500px;width:100%;padding:24px;display:flex;flex-direction:column;gap:12px;max-height:90vh;overflow:auto}
@@ -195,7 +194,6 @@ input:focus,select:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(1
     <div id="mapDiv" style="height:500px;border-radius:var(--radius);border:1px solid var(--border)"></div>
   </section>
 
-  <!-- ===== نوافذ التبادل والسند (الفقرة 1) ===== -->
   <div class="modal" id="transferModal">
     <div class="modal-box">
       <button class="close-x" onclick="closeModal('transferModal')">✕</button>
@@ -276,6 +274,37 @@ function gate(page) {
   else { showPage('auth'); showStatus('يرجى تسجيل الدخول أولاً', 'error'); }
 }
 
+/* ===== الفقرة 2: ضغط الصور قبل الرفع ===== */
+function compressImage(file, maxW, q){
+  maxW = maxW || 900; q = q || 0.6;
+  return new Promise(function(res, rej){
+    if(!file || !file.type.startsWith('image/')) return rej(new Error('not an image'));
+    const r = new FileReader();
+    r.onload = function(e){
+      const img = new Image();
+      img.onload = function(){
+        let w = img.width, h = img.height;
+        if(w > maxW){ h = Math.round(h * maxW / w); w = maxW; }
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        c.getContext('2d').drawImage(img, 0, 0, w, h);
+        const base = file.name.replace(/\.[^.]+$/, '');
+        c.toBlob(function(b){
+          if(b && b.type === 'image/webp') return res(new File([b], base + '.webp', {type:'image/webp'}));
+          c.toBlob(function(b2){
+            if(!b2) return rej(new Error('compress failed'));
+            res(new File([b2], base + '.jpg', {type:'image/jpeg'}));
+          }, 'image/jpeg', q);
+        }, 'image/webp', q);
+      };
+      img.onerror = rej;
+      img.src = e.target.result;
+    };
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+}
+
 function switchAuthTab(tab) {
   $('loginForm').classList.toggle('hidden', tab !== 'login');
   $('signupForm').classList.toggle('hidden', tab !== 'signup');
@@ -331,8 +360,10 @@ async function handleSignup(e) {
     if(authErr) throw authErr;
     let imgUrl = '';
     if(file) {
-      const fileName = `${Date.now()}_${file.name}`;
-      const {data: upData} = await supabase.storage.from('licenses').upload(fileName, file);
+      let toUpload = file;
+      try { toUpload = await compressImage(file, 900, 0.6); } catch(err) { toUpload = file; }
+      const fileName = `${Date.now()}_${toUpload.name}`;
+      const {data: upData} = await supabase.storage.from('licenses').upload(fileName, toUpload);
       if(upData) imgUrl = supabase.storage.from('licenses').getPublicUrl(upData.path).data.publicUrl;
     }
     const {error: dbErr} = await supabase.from('pharmacies').insert([{
@@ -369,19 +400,19 @@ async function handleList(e) {
   const daysLeft = Math.ceil((expDate - Date.now()) / (1000*60*60*24));
   if(daysLeft < 30) return showStatus('⛔ لا يمكن إدراج أدوية تنتهي خلال أقل من 30 يوماً', 'error');
   const btn = e.target.querySelector('button');
-  btn.disabled = true; btn.textContent = 'جاري المعالجة...';
+  btn.disabled = true; btn.textContent = 'جاري الضغط والمعالجة...';
   try {
     const medFile = $('imgMed').files[0];
     const expFile = $('imgExp').files[0];
+    let cMed = medFile, cExp = expFile;
+    try { cMed = await compressImage(medFile, 900, 0.6); } catch(err) { console.warn('med compress failed', err); }
+    try { cExp = await compressImage(expFile, 900, 0.6); } catch(err) { console.warn('exp compress failed', err); }
+    const savedKB = Math.max(0, Math.round((medFile.size + expFile.size - cMed.size - cExp.size) / 1024));
     let medUrl='', expUrl='';
-    if(medFile) {
-      const {data} = await supabase.storage.from('licenses').upload(`${Date.now()}_med.jpg`, medFile);
-      if(data) medUrl = supabase.storage.from('licenses').getPublicUrl(data.path).data.publicUrl;
-    }
-    if(expFile) {
-      const {data} = await supabase.storage.from('licenses').upload(`${Date.now()}_exp.jpg`, expFile);
-      if(data) expUrl = supabase.storage.from('licenses').getPublicUrl(data.path).data.publicUrl;
-    }
+    const {data: m1} = await supabase.storage.from('licenses').upload(`${Date.now()}_med_${cMed.name}`, cMed);
+    if(m1) medUrl = supabase.storage.from('licenses').getPublicUrl(m1.path).data.publicUrl;
+    const {data: m2} = await supabase.storage.from('licenses').upload(`${Date.now()}_exp_${cExp.name}`, cExp);
+    if(m2) expUrl = supabase.storage.from('licenses').getPublicUrl(m2.path).data.publicUrl;
     await supabase.from('listings').insert([{
       pharmacy_id: state.pharmacy.id,
       name: $('lName').value.trim(),
@@ -395,7 +426,7 @@ async function handleList(e) {
       exp_image_url: expUrl,
       ocr_status: 'verified'
     }]);
-    showStatus('✅ تم إدراج العرض بنجاح!');
+    showStatus(`✅ تم الإدراج بنجاح — وفّر الضغط ${savedKB} KB`);
     e.target.reset();
     showPage('browse');
   } catch(err) {
@@ -455,7 +486,6 @@ function renderMarketGrid() {
   `).join('');
 }
 
-/* ===== الفقرة 1: بروتوكول التبادل والتوقيع الرقمي ===== */
 function openTransfer(id) {
   if(!state.user) { showPage('auth'); showStatus('يرجى تسجيل الدخول أولاً', 'error'); return; }
   const item = state.listings.find(x => x.id === id);
@@ -541,7 +571,6 @@ window.addEventListener('DOMContentLoaded', () => {
   $('bCat')?.addEventListener('change', renderMarketGrid);
   const minDate = new Date(Date.now() + 30*864e5).toISOString().split('T')[0];
   if($('lExp')) $('lExp').min = minDate;
-  // إغلاق النوافذ عند الضغط خارجها
   document.querySelectorAll('.modal').forEach(m => {
     m.addEventListener('click', e => { if(e.target === m) m.classList.remove('show'); });
   });
